@@ -2,13 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
+	_ "github.com/joho/godotenv/autoload"
 	"log"
 	"net/http"
 	"net/smtp"
 	"os"
-
-	"github.com/gin-gonic/gin"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 type Server struct {
@@ -40,7 +39,7 @@ func main() {
 			return
 		}
 
-		fmt.Println(server)
+		index()
 	})
 
 	r.Run()
@@ -67,23 +66,31 @@ func index() {
 }
 
 func (server *Server) send() {
-	for _, mail := range server.Mails {
-		go func(mail Mail) {
-			err := smtp.SendMail(
-				fmt.Sprintf("%s:%s", server.Host, server.Port),
-				smtp.PlainAuth(server.Identity, server.Username, server.Password, server.Host),
-				server.Username,
-				[]string{mail.To},
-				[]byte(mail.message()),
-			)
+	go func() {
+		done := make(chan bool, 10)
 
-			log.Println(mail.message())
+		for _, mail := range server.Mails {
+			done <- true
 
-			if err != nil {
-				log.Fatal(err)
-			}
-		}(mail)
-	}
+			go func(mail Mail) {
+				err := smtp.SendMail(
+					fmt.Sprintf("%s:%s", server.Host, server.Port),
+					smtp.PlainAuth(server.Identity, server.Username, server.Password, server.Host),
+					server.Username,
+					[]string{mail.To},
+					[]byte(mail.message()),
+				)
+
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				<- done
+
+				log.Println(mail.message())
+			}(mail)
+		}
+	}()
 }
 
 func (mail *Mail) message() string {
