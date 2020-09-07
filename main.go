@@ -1,68 +1,65 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	_ "github.com/joho/godotenv/autoload"
 	"log"
 	"net/http"
 	"net/smtp"
-	"os"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type Server struct {
-	Host     string `json:"host" binding:"required"`
-	Port     string `json:"port" binding:"required"`
+	Host     string `json:"host" validate:"required"`
+	Port     string `json:"port" validate:"required"`
 	Identity string `json:"identity"`
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	Mails    []Mail `json:"mails" binding:"required,dive"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
+	Mails    []Mail `json:"mails" validate:"required,dive"`
 }
 
 type Mail struct {
-	From    string `json:"from" binding:"required"`
-	To      string `json:"to" binding:"required"`
-	Subject string `json:"subject" binding:"required"`
-	Body    string `json:"body" binding:"required"`
+	From    string `json:"from" validate:"required"`
+	To      string `json:"to" validate:"required"`
+	Subject string `json:"subject" validate:"required"`
+	Body    string `json:"body" validate:"required"`
 }
 
 func main() {
-	r := gin.Default()
+	http.HandleFunc("/", index)
 
-	r.POST("/", func(c *gin.Context) {
-		server := Server{}
-
-		if err := c.ShouldBindJSON(&server); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		index()
-	})
-
-	r.Run()
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func index() {
-	server := Server{
-		Host:     os.Getenv("MAIL_HOST"),
-		Port:     os.Getenv("MAIL_PORT"),
-		Identity: "",
-		Username: os.Getenv("MAIL_USERNAME"),
-		Password: os.Getenv("MAIL_PASSWORD"),
-		Mails: []Mail{
-			{
-				From:    "Memo Chou",
-				To:      "memochou1993@gmail.com",
-				Subject: "This is an example email",
-				Body:    "Hello",
-			},
-		},
+func index(w http.ResponseWriter, r *http.Request) {
+	var server Server
+
+	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+		response(w, http.StatusUnprocessableEntity, map[string]interface{}{
+			"error": err.Error(),
+		})
+
+		return
+	}
+
+	if err := server.validate(); err != nil {
+		response(w, http.StatusUnprocessableEntity, map[string]interface{}{
+			"error": err.Error(),
+		})
+
+		return
 	}
 
 	server.send()
+}
+
+func (server *Server) validate() error {
+	var validate *validator.Validate
+
+	validate = validator.New()
+
+	return validate.Struct(server)
 }
 
 func (server *Server) send() {
@@ -85,9 +82,9 @@ func (server *Server) send() {
 					log.Fatal(err)
 				}
 
-				<- done
-
 				log.Println(mail.message())
+
+				<-done
 			}(mail)
 		}
 	}()
@@ -107,4 +104,15 @@ func (mail *Mail) message() string {
 	}
 
 	return message + "\r\n" + mail.Body
+}
+
+func response(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
 }
