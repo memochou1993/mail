@@ -1,4 +1,4 @@
-module github.com/memochou1993/mail-server
+module github.com/memochou1993/mail
 
 go 1.13
 
